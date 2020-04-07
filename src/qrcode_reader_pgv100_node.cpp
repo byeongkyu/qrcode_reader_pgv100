@@ -182,6 +182,8 @@ class QRCodeReaderPGV100
 
             ROS_DEBUG("TAG_: %d", tag);
             result_msg.detected_text = std::to_string(tag);
+
+            pub_scan_result_.publish(result_msg);
         }
 
         void send_request_to_scan()
