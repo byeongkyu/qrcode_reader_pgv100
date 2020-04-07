@@ -59,6 +59,7 @@
   <exec_depend>rospy</exec_depend>
   <exec_depend>thirabot_msgs</exec_depend>
   <build_depend>libserial-dev</build_depend>
+  <depend>tf2_ros</depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

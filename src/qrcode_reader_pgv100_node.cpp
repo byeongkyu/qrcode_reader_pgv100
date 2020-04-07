@@ -1,9 +1,10 @@
 #include "ros/ros.h"
 #include <SerialPort.h>
 #include <thirabot_msgs/QRDetectResult.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <cmath>
+#include <string>
 
 #define PI  3.14159265
 
@@ -17,19 +18,19 @@ class QRCodeReaderPGV100
 
         bool init()
         {
-            // get serial port name: ex) /dev/ttyUSB0            
+            // get serial port name: ex) /dev/ttyUSB0
             std::string portName;
 
             pnh_.setParam("port_name", "/dev/ttyUSB0");
             if(!pnh_.getParam("port_name", portName))
-            {   
+            {
                 ROS_ERROR("[%s] Failed to get port name. Please set the parameter ~port_name", ros::this_node::getName().c_str());
                 return false;
             }
 
             // get baudrate
             int baudrate;
-            
+
             pnh_.setParam("baudrate", 115200);
             if(!pnh_.getParam("baudrate", baudrate)) {
                 ROS_ERROR("[%s] Failed to get baudrate. Please set the parameter ~baudrate", ros::this_node::getName().c_str());
@@ -67,14 +68,14 @@ class QRCodeReaderPGV100
                 SerialPort::DataBuffer recv_packet(1);
                 try
                 {
-                    serial_port_->Read(recv_packet, 1, 100);                        
+                    serial_port_->Read(recv_packet, 1, 100);
                 }
                 catch (SerialPort::ReadTimeout e)
                 {
                     ROS_INFO("Buffer initialized successfully");
                     break;
                 }
-        
+
             }
 
             double rate = 0.0;
@@ -96,37 +97,14 @@ class QRCodeReaderPGV100
     private:
         void callback(const ros::TimerEvent& event)
         {
-            // Send request code to PGV100
-            int code_num, dpos_x, dpos_y, ang_degree, ang_cnt;
-            int xor_chk_count = 0;
-            double ang_radian = 0.0;
-            bool code_detect = false;
-
-            char *status_bin_1, *status_bin_2 = {0, };
-            char *x_bin_1, *x_bin_2, *x_bin_3, *x_bin_4 =  {0, };
-            char *y_bin_1, *y_bin_2 = {0, };
-            char *ag_bin_1, *ag_bin_2 = {0, };
-            char *code_num_1, *code_num_2, *code_num_3, *code_num_4 = {0, };
-
-            char x_pos[28] = {0, };
-            char y_pos[14] = {0, };
-            char tag_num[28] = {0, };
-            char ag_pos[14] = {0,};
-
             send_request_to_scan();
             ros::Duration(0.02).sleep();
+
             // Receive the packet from PGV100
             SerialPort::DataBuffer recv_packet(21);
             try
             {
                 serial_port_->Read(recv_packet, 21, 5);
-                /*
-                for(size_t i = 0; i < recv_packet.size(); i++)
-                {
-                    ROS_INFO("Hex[%d] = %ld", i, recv_packet[i]);
-                }
-                printf("\n");
-                */
             }
             catch (SerialPort::ReadTimeout e)
             {
@@ -134,132 +112,83 @@ class QRCodeReaderPGV100
                 return;
             }
 
-            // Parse the received packet
-            //check data by XOR value
-            int chk_data = 0;
-            while(true)
+            // Calculate the checksum by XOR [0:19]
+            int8_t checksum = recv_packet[0];
+            for(size_t i = 1; i < 20; i++)
             {
-                chk_data = chk_data ^ recv_packet[xor_chk_count];
-
-                if(xor_chk_count == 19){
-                    xor_chk_count = 0;
-                    printf("\n");
-                    break;                    
-                }
-                xor_chk_count++;    
+                checksum ^= recv_packet[i];
             }
-            if(chk_data == recv_packet[20])
-            { 
-                status_bin_2 = intToBinary(recv_packet[1]);
-                if(status_bin_2[0] == '1')
-                    code_detect = true;
 
-                ROS_INFO("code_detect = %s", code_detect ? "true" : "false");
-
-                x_bin_1 = intToBinary(recv_packet[2]);     
-                strcat(x_pos, x_bin_1);    
-                x_bin_2 = intToBinary(recv_packet[3]);
-                strcat(x_pos, x_bin_2); 
-                x_bin_3 = intToBinary(recv_packet[4]);
-                strcat(x_pos, x_bin_3); 
-                x_bin_4 = intToBinary(recv_packet[5]);
-                strcat(x_pos, x_bin_4);
-
-                dpos_x = binaryToInt(x_pos);
-                if(dpos_x > 2000.0)                         // Use for mark up (-) value
-                    dpos_x = dpos_x - pow(2,24) - 1;
-
-                ROS_INFO("dpos_x = %d", dpos_x);
-
-                y_bin_1 = intToBinary(recv_packet[6]);
-                strcat(y_pos, y_bin_1);
-                y_bin_2 = intToBinary(recv_packet[7]);
-                strcat(y_pos, y_bin_2);                  
-
-                dpos_y = binaryToInt(y_pos);
-                if(dpos_y > 2000.0)                         // Use for mark up (-) value
-                    dpos_y = dpos_y - pow(2,14) - 1;
-
-                ROS_INFO("dpos_y = %d", dpos_y);
-
-                ag_bin_1 = intToBinary(recv_packet[10]);
-                strcat(ag_pos, ag_bin_1);
-                ag_bin_2 = intToBinary(recv_packet[11]);
-                strcat(ag_pos, ag_bin_2);
-                ang_degree = binaryToInt(ag_pos);
-
-                ang_degree = ang_degree / 2;
-                if(ang_degree == 0.0)
-                    ang_degree = 0.0;      
-                else if(90.0 > ang_degree && ang_degree > 0.0){
-                    ang_cnt = 180.0 - ang_degree;
-                    ang_degree = ang_degree + (2 * ang_cnt);
-                } 
-                else if(180.0 > ang_degree && ang_degree >= 90.0){
-                    ang_cnt = 180.0 - ang_degree;
-                    ang_degree = ang_degree + (2 * ang_cnt);
-                }
-                else if(270.0 > ang_degree && ang_degree >= 180.0){
-                    ang_cnt = ang_degree - 180.0;
-                    ang_degree = ang_degree - (2 * ang_cnt);  
-                }     
-                else if(360.0 > ang_degree && ang_degree >= 270.0){
-                    ang_cnt = ang_degree - 180.0;
-                    ang_degree = ang_degree - (2 * ang_cnt);
-                }
-                //degree to radian
-                ang_radian = ang_degree * (PI/180.0);
-                ROS_INFO("ang_degree = %d", ang_degree);
-                ROS_INFO("ang_radian = %f", ang_radian);
-
-                code_num_1 = intToBinary(recv_packet[14]);
-                strcat(tag_num, code_num_1);                
-                code_num_2 = intToBinary(recv_packet[15]);
-                strcat(tag_num, code_num_2);                
-                code_num_3 = intToBinary(recv_packet[16]);
-                strcat(tag_num, code_num_3);                
-                code_num_4 = intToBinary(recv_packet[17]);
-                strcat(tag_num, code_num_4);    
-
-                code_num = binaryToInt(tag_num);
-                ROS_INFO("code_number = %d", code_num); 
-            }
-            else
+            // Compare with calculated checksum and received checksum.
+            if(checksum != recv_packet[20])
             {
-                ROS_WARN("Invalid data value");
+                ROS_WARN("[%s] Checksum mismatched...", ros::this_node::getName().c_str());
                 return;
             }
-        }
 
-        char *intToBinary(int i) 
-        {
-            static char s[7 + 1] = {'0', };
-            int count = 7;
-            do 
+
+            // Parse and save the result from received packet
+            thirabot_msgs::QRDetectResult result_msg = thirabot_msgs::QRDetectResult();
+
+            if(recv_packet[1] & 0x40)
             {
-                s[--count] = '0' + (char)(i & 1);
-                i = i >> 1;
-            } while (count);
+                result_msg.is_detected = true;
+                ROS_DEBUG("QR code detected.");
+            }
 
-            return s;
-        }
+            int32_t xps = ((int32_t)(recv_packet[2] & 0x07) << 21 |
+                            ((int32_t)(recv_packet[3] & 0x7f) << 14) |
+                            ((int32_t)(recv_packet[4] & 0x7f) << 7) |
+                            (recv_packet[5] & 0x7f));
 
-        int binaryToInt(char *s) 
-        {
-            int i = 0;
-            int count = 0;
+            if(xps & 0x40000) // MSB is set, it is negative value
+            {
+                xps |= 0xff800000;
+            }
+            ROS_DEBUG("XPS_: %d", xps);
+            result_msg.pose.position.x = xps / 1000.0;
 
-            while (s[count])
-                i = (i << 1) | (s[count++] - '0');
 
-            return i;
+            int16_t yps = ((int16_t)(recv_packet[6] & 0x7f) << 7) |
+                            (recv_packet[7] & 0x7f);
+
+            if(yps & 0x2000) // MSB is set, it is negative value
+            {
+                yps |= 0xC000;
+            }
+            ROS_DEBUG("YPS_: %d", yps);
+            result_msg.pose.position.y = yps / 1000.0;
+
+
+            int16_t ang = ((int16_t)(recv_packet[10] & 0x7f) << 7) |
+                            (recv_packet[11] & 0x7f);
+
+            if(ang & 0x2000) // MSB is set, it is negative value
+            {
+                ang |= 0xC000;
+            }
+            ROS_DEBUG("ANG_: %d", ang);
+            tf2::Quaternion q;
+            q.setRPY(0.0, 0.0, ang / 180.0 * M_PI);
+            result_msg.pose.orientation.x = q[0];
+            result_msg.pose.orientation.y = q[1];
+            result_msg.pose.orientation.z = q[2];
+            result_msg.pose.orientation.w = q[3];
+
+            uint32_t tag = ((uint32_t)(recv_packet[14] & 0x07) << 21 |
+                            ((uint32_t)(recv_packet[15] & 0x7f) << 14) |
+                            ((uint32_t)(recv_packet[16] & 0x7f) << 7) |
+                            (recv_packet[17] & 0x7f));
+
+            ROS_DEBUG("TAG_: %d", tag);
+            result_msg.detected_text = std::to_string(tag);
         }
 
         void send_request_to_scan()
         {
             SerialPort::DataBuffer req_packet(2);
             req_packet[0] = 0xC8;
-            req_packet[1] = 0x37;
+            req_packet[1] = ~req_packet[0];
 
             if(serial_port_->IsOpen())
             {
@@ -277,7 +206,7 @@ class QRCodeReaderPGV100
             SerialPort::DataBuffer req_type(2);
 
             req_type[0] = 0xEC;
-            req_type[1] = 0x13;
+            req_type[1] = req_type[0];
 
             if(serial_port_->IsOpen())
             {
