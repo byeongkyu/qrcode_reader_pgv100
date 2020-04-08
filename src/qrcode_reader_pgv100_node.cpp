@@ -208,7 +208,7 @@ class QRCodeReaderPGV100
             SerialPort::DataBuffer req_type(2);
 
             req_type[0] = 0xEC;
-            req_type[1] = req_type[0];
+            req_type[1] = 0x13;
 
             if(serial_port_->IsOpen())
             {

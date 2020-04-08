@@ -1,0 +1,6 @@
+devel_space: /home/dmkim/thirabot_Project/devel
+install: false
+install_space: /home/dmkim/thirabot_Project/install
+profile: default
+source_space: /home/dmkim/thirabot_Project/src
+workspace: /home/dmkim/thirabot_Project
