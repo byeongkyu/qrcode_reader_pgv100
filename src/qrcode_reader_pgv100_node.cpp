@@ -168,6 +168,7 @@ class QRCodeReaderPGV100
                 ang |= 0xC000;
             }
             ROS_DEBUG("ANG_: %d", ang);
+
             tf2::Quaternion q;
             q.setRPY(0.0, 0.0, ang / 180.0 * M_PI);
             result_msg.pose.orientation.x = q[0];
@@ -183,6 +184,7 @@ class QRCodeReaderPGV100
             ROS_DEBUG("TAG_: %d", tag);
             result_msg.detected_text = std::to_string(tag);
 
+            result_msg.header.stamp = ros::Time::now();
             pub_scan_result_.publish(result_msg);
         }
 
@@ -207,8 +209,8 @@ class QRCodeReaderPGV100
 
             SerialPort::DataBuffer req_type(2);
 
-            req_type[0] = 0xEC;
-            req_type[1] = 0x13;
+            req_type[0] = 0xec;
+            req_type[1] = ~req_type[0];
 
             if(serial_port_->IsOpen())
             {
