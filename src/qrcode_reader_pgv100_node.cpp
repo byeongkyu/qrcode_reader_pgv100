@@ -6,8 +6,6 @@
 #include <cmath>
 #include <string>
 
-#define PI  3.14159265
-
 class QRCodeReaderPGV100
 {
     public:
@@ -20,8 +18,6 @@ class QRCodeReaderPGV100
         {
             // get serial port name: ex) /dev/ttyUSB0
             std::string portName;
-
-            pnh_.setParam("port_name", "/dev/ttyUSB0");
             if(!pnh_.getParam("port_name", portName))
             {
                 ROS_ERROR("[%s] Failed to get port name. Please set the parameter ~port_name", ros::this_node::getName().c_str());
@@ -30,8 +26,6 @@ class QRCodeReaderPGV100
 
             // get baudrate
             int baudrate;
-
-            pnh_.setParam("baudrate", 115200);
             if(!pnh_.getParam("baudrate", baudrate)) {
                 ROS_ERROR("[%s] Failed to get baudrate. Please set the parameter ~baudrate", ros::this_node::getName().c_str());
                 return false;
