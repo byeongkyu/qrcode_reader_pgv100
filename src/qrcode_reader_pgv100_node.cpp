@@ -128,56 +128,63 @@ class QRCodeReaderPGV100
             {
                 result_msg.is_detected = true;
                 ROS_DEBUG("QR code detected.");
+
+                int32_t xps = ((int32_t)(recv_packet[2] & 0x07) << 21 |
+                                ((int32_t)(recv_packet[3] & 0x7f) << 14) |
+                                ((int32_t)(recv_packet[4] & 0x7f) << 7) |
+                                (recv_packet[5] & 0x7f));
+
+                if(xps & 0x40000) // MSB is set, it is negative value
+                {
+                    xps |= 0xff800000;
+                }
+                ROS_DEBUG("XPS_: %d", xps);
+                result_msg.pose.position.x = xps / 1000.0;
+
+
+                int16_t yps = ((int16_t)(recv_packet[6] & 0x7f) << 7) |
+                                (recv_packet[7] & 0x7f);
+
+                if(yps & 0x2000) // MSB is set, it is negative value
+                {
+                    yps |= 0xC000;
+                }
+                ROS_DEBUG("YPS_: %d", yps);
+                result_msg.pose.position.y = yps / 1000.0;
+
+
+                int16_t ang = ((int16_t)(recv_packet[10] & 0x7f) << 7) |
+                                (recv_packet[11] & 0x7f);
+
+                if(ang & 0x2000) // MSB is set, it is negative value
+                {
+                    ang |= 0xC000;
+                }
+                ang = 360 - ang/2;
+                ROS_DEBUG("ANG_: %d", ang);
+
+
+                tf2::Quaternion q;
+                q.setRPY(0.0, 0.0, ang / 180.0 * M_PI);
+                result_msg.pose.orientation.x = q[0];
+                result_msg.pose.orientation.y = q[1];
+                result_msg.pose.orientation.z = q[2];
+                result_msg.pose.orientation.w = q[3];
+
+                uint32_t tag = ((uint32_t)(recv_packet[14] & 0x07) << 21 |
+                                ((uint32_t)(recv_packet[15] & 0x7f) << 14) |
+                                ((uint32_t)(recv_packet[16] & 0x7f) << 7) |
+                                (recv_packet[17] & 0x7f));
+
+                ROS_DEBUG("TAG_: %d", tag);
+                result_msg.detected_text = std::to_string(tag);
             }
-
-            int32_t xps = ((int32_t)(recv_packet[2] & 0x07) << 21 |
-                            ((int32_t)(recv_packet[3] & 0x7f) << 14) |
-                            ((int32_t)(recv_packet[4] & 0x7f) << 7) |
-                            (recv_packet[5] & 0x7f));
-
-            if(xps & 0x40000) // MSB is set, it is negative value
+            else
             {
-                xps |= 0xff800000;
+                result_msg.is_detected = false;
+                ROS_WARN("[%s]QR code not detected.", ros::this_node::getName().c_str());                
             }
-            ROS_DEBUG("XPS_: %d", xps);
-            result_msg.pose.position.x = xps / 1000.0;
-
-
-            int16_t yps = ((int16_t)(recv_packet[6] & 0x7f) << 7) |
-                            (recv_packet[7] & 0x7f);
-
-            if(yps & 0x2000) // MSB is set, it is negative value
-            {
-                yps |= 0xC000;
-            }
-            ROS_DEBUG("YPS_: %d", yps);
-            result_msg.pose.position.y = yps / 1000.0;
-
-
-            int16_t ang = ((int16_t)(recv_packet[10] & 0x7f) << 7) |
-                            (recv_packet[11] & 0x7f);
-
-            if(ang & 0x2000) // MSB is set, it is negative value
-            {
-                ang |= 0xC000;
-            }
-            ROS_DEBUG("ANG_: %d", ang);
-
-            tf2::Quaternion q;
-            q.setRPY(0.0, 0.0, ang / 180.0 * M_PI);
-            result_msg.pose.orientation.x = q[0];
-            result_msg.pose.orientation.y = q[1];
-            result_msg.pose.orientation.z = q[2];
-            result_msg.pose.orientation.w = q[3];
-
-            uint32_t tag = ((uint32_t)(recv_packet[14] & 0x07) << 21 |
-                            ((uint32_t)(recv_packet[15] & 0x7f) << 14) |
-                            ((uint32_t)(recv_packet[16] & 0x7f) << 7) |
-                            (recv_packet[17] & 0x7f));
-
-            ROS_DEBUG("TAG_: %d", tag);
-            result_msg.detected_text = std::to_string(tag);
-
+            
             result_msg.header.stamp = ros::Time::now();
             pub_scan_result_.publish(result_msg);
         }
