@@ -69,11 +69,10 @@ class QRCodeReaderPGV100
                     ROS_INFO("Buffer initialized successfully");
                     break;
                 }
-
             }
 
             double rate = 0.0;
-            pnh_.param<double>("rate", rate, 25.0);
+            pnh_.param<double>("rate", rate, 20.0);
 
             // init ROS publisher
             pub_scan_result_ = nh_.advertise<thirabot_msgs::QRDetectResult>("qrcode_scan_result", 1);
@@ -92,7 +91,7 @@ class QRCodeReaderPGV100
         void callback(const ros::TimerEvent& event)
         {
             send_request_to_scan();
-            ros::Duration(0.02).sleep();
+            ros::Duration(0.04).sleep();
 
             // Receive the packet from PGV100
             SerialPort::DataBuffer recv_packet(21);
@@ -103,6 +102,20 @@ class QRCodeReaderPGV100
             catch (SerialPort::ReadTimeout e)
             {
                 ROS_WARN("[%s] ReadTimeout occurred. check the communication line or device status.", ros::this_node::getName().c_str());
+
+                while(true)
+                {
+                    SerialPort::DataBuffer recv_packet(1);
+                    try
+                    {
+                        serial_port_->Read(recv_packet, 1, 2);
+                    }
+                    catch (SerialPort::ReadTimeout e)
+                    {
+                        break;
+                    }
+                }
+
                 return;
             }
 
@@ -117,6 +130,20 @@ class QRCodeReaderPGV100
             if(checksum != recv_packet[20])
             {
                 ROS_WARN("[%s] Checksum mismatched...", ros::this_node::getName().c_str());
+
+                while(true)
+                {
+                    SerialPort::DataBuffer recv_packet(1);
+                    try
+                    {
+                        serial_port_->Read(recv_packet, 1, 2);
+                    }
+                    catch (SerialPort::ReadTimeout e)
+                    {
+                        break;
+                    }
+                }
+
                 return;
             }
 
@@ -138,8 +165,9 @@ class QRCodeReaderPGV100
                 {
                     xps |= 0xff800000;
                 }
-                ROS_DEBUG("XPS_: %d", xps);
-                result_msg.pose.position.x = xps / 1000.0;
+                ROS_DEBUG("XPS_: %d", -1 * xps);
+                result_msg.pose.position.x = -1 * xps / 1000.0;
+
 
 
                 int16_t yps = ((int16_t)(recv_packet[6] & 0x7f) << 7) |
@@ -149,8 +177,8 @@ class QRCodeReaderPGV100
                 {
                     yps |= 0xC000;
                 }
-                ROS_DEBUG("YPS_: %d", yps);
-                result_msg.pose.position.y = yps / 1000.0;
+                ROS_DEBUG("YPS_: %d", -1 * yps);
+                result_msg.pose.position.y = -1 * yps / 1000.0;
 
 
                 int16_t ang = ((int16_t)(recv_packet[10] & 0x7f) << 7) |
@@ -160,7 +188,7 @@ class QRCodeReaderPGV100
                 {
                     ang |= 0xC000;
                 }
-                ang = 360 - ang/2;
+                ang = ang/2;
                 ROS_DEBUG("ANG_: %d", ang);
 
 
@@ -182,9 +210,9 @@ class QRCodeReaderPGV100
             else
             {
                 result_msg.is_detected = false;
-                ROS_WARN("[%s]QR code not detected.", ros::this_node::getName().c_str());                
+                ROS_DEBUG("[%s]QR code not detected.", ros::this_node::getName().c_str());
             }
-            
+
             result_msg.header.stamp = ros::Time::now();
             pub_scan_result_.publish(result_msg);
         }
