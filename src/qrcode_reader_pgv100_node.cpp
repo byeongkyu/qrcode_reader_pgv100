@@ -188,7 +188,7 @@ class QRCodeReaderPGV100
                 {
                     ang |= 0xC000;
                 }
-                ang = ang/2;
+                ang = 360 - ang/2;
                 ROS_DEBUG("ANG_: %d", ang);
 
 
