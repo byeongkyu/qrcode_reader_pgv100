@@ -6,6 +6,8 @@
 #include <cmath>
 #include <string>
 
+#include "angles/angles.h"
+
 class QRCodeReaderPGV100
 {
     public:
@@ -188,12 +190,13 @@ class QRCodeReaderPGV100
                 {
                     ang |= 0xC000;
                 }
-                ang = 360 - ang/2;
-                ROS_DEBUG("ANG_: %d", ang);
+                ang = ang/2;
+                double ang_radian = angles::normalize_angle(ang / 180.0 * M_PI);
+                ROS_DEBUG("ANG_: %f", ang_radian * 180 / M_PI);
 
 
                 tf2::Quaternion q;
-                q.setRPY(0.0, 0.0, ang / 180.0 * M_PI);
+                q.setRPY(0.0, 0.0, ang_radian);
                 result_msg.pose.orientation.x = q[0];
                 result_msg.pose.orientation.y = q[1];
                 result_msg.pose.orientation.z = q[2];
