@@ -1,5 +1,5 @@
 #include "ros/ros.h"
-#include <SerialPort.h>
+#include <libserial/SerialPort.h>
 #include <thirabot_msgs/QRDetectResult.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -34,47 +34,34 @@ class QRCodeReaderPGV100
             }
 
             // libserial
-            serial_port_ = boost::make_shared<SerialPort>(portName);
-            serial_port_->Open();
+            serial_port_ = boost::make_shared<LibSerial::SerialPort>();
+            serial_port_->Open(portName);
 
             switch(baudrate)
             {
                 case 115200:
-                    serial_port_->SetBaudRate(SerialPort::BAUD_115200);
+                    serial_port_->SetBaudRate(LibSerial::BaudRate::BAUD_115200);
                     break;
                 case 57600:
-                    serial_port_->SetBaudRate(SerialPort::BAUD_57600);
+                    serial_port_->SetBaudRate(LibSerial::BaudRate::BAUD_57600);
                     break;
                 case 19200:
-                    serial_port_->SetBaudRate(SerialPort::BAUD_19200);
+                    serial_port_->SetBaudRate(LibSerial::BaudRate::BAUD_19200);
                     break;
                 default:
                     ROS_ERROR("Failed to set baudrate. This baudrate is not support yet...");
                     return false;
             }
 
-
-            serial_port_->SetParity(SerialPort::PARITY_EVEN);
+            serial_port_->SetParity(LibSerial::Parity::PARITY_EVEN);
+            serial_port_->FlushIOBuffers();
             ros::Duration(0.5).sleep();
 
             send_type_to_scan();
-            ros::Duration(0.5).sleep();
-            while(true)
-            {
-                SerialPort::DataBuffer recv_packet(1);
-                try
-                {
-                    serial_port_->Read(recv_packet, 1, 100);
-                }
-                catch (SerialPort::ReadTimeout e)
-                {
-                    ROS_INFO("Buffer initialized successfully");
-                    break;
-                }
-            }
+            serial_port_->FlushIOBuffers();
 
             double rate = 0.0;
-            pnh_.param<double>("rate", rate, 20.0);
+            pnh_.param<double>("rate", rate, 50.0);
 
             // init ROS publisher
             pub_scan_result_ = nh_.advertise<thirabot_msgs::QRDetectResult>("qrcode_scan_result", 1);
@@ -93,31 +80,18 @@ class QRCodeReaderPGV100
         void callback(const ros::TimerEvent& event)
         {
             send_request_to_scan();
-            ros::Duration(0.04).sleep();
+            // ros::Duration(0.04).sleep();
 
             // Receive the packet from PGV100
-            SerialPort::DataBuffer recv_packet(21);
+            LibSerial::DataBuffer recv_packet(21);
             try
             {
-                serial_port_->Read(recv_packet, 21, 5);
+                serial_port_->Read(recv_packet, 21, 100);
             }
-            catch (SerialPort::ReadTimeout e)
+            catch (LibSerial::ReadTimeout e)
             {
                 ROS_WARN("[%s] ReadTimeout occurred. check the communication line or device status.", ros::this_node::getName().c_str());
-
-                while(true)
-                {
-                    SerialPort::DataBuffer recv_packet(1);
-                    try
-                    {
-                        serial_port_->Read(recv_packet, 1, 2);
-                    }
-                    catch (SerialPort::ReadTimeout e)
-                    {
-                        break;
-                    }
-                }
-
+                serial_port_->FlushIOBuffers();
                 return;
             }
 
@@ -132,20 +106,7 @@ class QRCodeReaderPGV100
             if(checksum != recv_packet[20])
             {
                 ROS_WARN("[%s] Checksum mismatched...", ros::this_node::getName().c_str());
-
-                while(true)
-                {
-                    SerialPort::DataBuffer recv_packet(1);
-                    try
-                    {
-                        serial_port_->Read(recv_packet, 1, 2);
-                    }
-                    catch (SerialPort::ReadTimeout e)
-                    {
-                        break;
-                    }
-                }
-
+                serial_port_->FlushIOBuffers();
                 return;
             }
 
@@ -169,7 +130,6 @@ class QRCodeReaderPGV100
                 }
                 ROS_DEBUG("XPS_: %d", -1 * xps);
                 result_msg.pose.position.x = -1 * xps / 1000.0;
-
 
 
                 int16_t yps = ((int16_t)(recv_packet[6] & 0x7f) << 7) |
@@ -222,13 +182,14 @@ class QRCodeReaderPGV100
 
         void send_request_to_scan()
         {
-            SerialPort::DataBuffer req_packet(2);
+            LibSerial::DataBuffer req_packet(2);
             req_packet[0] = 0xC8;
             req_packet[1] = ~req_packet[0];
 
             if(serial_port_->IsOpen())
             {
                 serial_port_->Write(req_packet);
+                serial_port_->DrainWriteBuffer();
             }
         }
 
@@ -239,7 +200,7 @@ class QRCodeReaderPGV100
             // Follow Right         =   0xE4, 0x1B
             // No lane is selected  =   0xE0, 0x1F
 
-            SerialPort::DataBuffer req_type(2);
+            LibSerial::DataBuffer req_type(2);
 
             req_type[0] = 0xec;
             req_type[1] = ~req_type[0];
@@ -247,12 +208,13 @@ class QRCodeReaderPGV100
             if(serial_port_->IsOpen())
             {
                 serial_port_->Write(req_type);
+                serial_port_->DrainWriteBuffer();
             }
         }
     private:
         ros::NodeHandle nh_;
         ros::NodeHandle pnh_;
-        boost::shared_ptr<SerialPort> serial_port_;
+        boost::shared_ptr<LibSerial::SerialPort> serial_port_;
 
         ros::Publisher pub_scan_result_;
         ros::Timer loop_timer_;
