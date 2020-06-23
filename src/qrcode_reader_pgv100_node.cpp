@@ -5,6 +5,10 @@
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <cmath>
 #include <string>
+#include <diagnostic_msgs/DiagnosticArray.h>
+#include <diagnostic_msgs/DiagnosticStatus.h>
+#include <diagnostic_msgs/KeyValue.h>
+
 
 #include "angles/angles.h"
 
@@ -65,6 +69,7 @@ class QRCodeReaderPGV100
 
             // init ROS publisher
             pub_scan_result_ = nh_.advertise<thirabot_msgs::QRDetectResult>("qrcode_scan_result", 1);
+            pub_diagnostic_ = nh_.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 1);
             loop_timer_ = nh_.createTimer(ros::Duration(1.0/rate), &QRCodeReaderPGV100::callback, this);
             ROS_INFO("[%s] Initialized successfully.", ros::this_node::getName().c_str());
             return true;
@@ -107,16 +112,18 @@ class QRCodeReaderPGV100
             {
                 ROS_WARN("[%s] Checksum mismatched...", ros::this_node::getName().c_str());
                 serial_port_->FlushIOBuffers();
+                checksum_state = false;
                 return;
             }
-
+            checksum_state = true;
 
             // Parse and save the result from received packet
             thirabot_msgs::QRDetectResult result_msg = thirabot_msgs::QRDetectResult();
 
             if(recv_packet[1] & 0x40)
             {
-                result_msg.is_detected = true;
+                scan_detected = true;
+                result_msg.is_detected = scan_detected;
                 ROS_DEBUG("QR code detected.");
 
                 int32_t xps = ((int32_t)(recv_packet[2] & 0x07) << 21 |
@@ -129,8 +136,8 @@ class QRCodeReaderPGV100
                     xps |= 0xff800000;
                 }
                 ROS_DEBUG("XPS_: %d", -1 * xps);
-                result_msg.pose.position.x = -1 * xps / 1000.0;
-
+                scan_pos_x = -1 * xps / 1000.0;
+                result_msg.pose.position.x = scan_pos_x;
 
                 int16_t yps = ((int16_t)(recv_packet[6] & 0x7f) << 7) |
                                 (recv_packet[7] & 0x7f);
@@ -140,7 +147,8 @@ class QRCodeReaderPGV100
                     yps |= 0xC000;
                 }
                 ROS_DEBUG("YPS_: %d", -1 * yps);
-                result_msg.pose.position.y = -1 * yps / 1000.0;
+                scan_pos_y = -1 * yps / 1000.0;
+                result_msg.pose.position.y = scan_pos_y;
 
 
                 int16_t ang = ((int16_t)(recv_packet[10] & 0x7f) << 7) |
@@ -151,7 +159,7 @@ class QRCodeReaderPGV100
                     ang |= 0xC000;
                 }
                 ang = ang/2;
-                double ang_radian = angles::normalize_angle(ang / 180.0 * M_PI);
+                ang_radian = angles::normalize_angle(ang / 180.0 * M_PI);
                 ROS_DEBUG("ANG_: %f", ang_radian * 180 / M_PI);
 
 
@@ -168,15 +176,24 @@ class QRCodeReaderPGV100
                                 (recv_packet[17] & 0x7f));
 
                 ROS_DEBUG("TAG_: %d", tag);
-                result_msg.detected_text = std::to_string(tag);
+                scan_code_num = tag;
+                result_msg.detected_text = std::to_string(scan_code_num);
             }
             else
             {
-                result_msg.is_detected = false;
+                scan_detected = false;
+                result_msg.is_detected = scan_detected;
+                scan_pos_x = 0;
+                scan_pos_y = 0;
+                ang_radian = 0;
+                scan_code_num = 0;
+
                 ROS_DEBUG("[%s]QR code not detected.", ros::this_node::getName().c_str());
             }
 
             result_msg.header.stamp = ros::Time::now();
+            update_diagnostics();
+
             pub_scan_result_.publish(result_msg);
         }
 
@@ -211,14 +228,70 @@ class QRCodeReaderPGV100
                 serial_port_->DrainWriteBuffer();
             }
         }
+
+        void update_diagnostics()
+        {
+            thirabot_msgs::QRDetectResult result_msg = thirabot_msgs::QRDetectResult();
+
+            diagnostic_msgs::DiagnosticArray dia_array;
+            diagnostic_msgs::DiagnosticStatus scan_status;
+            diagnostic_msgs::KeyValue scan_result; 
+
+            std::string str_is_detected = std::to_string(scan_detected); 
+            std::string str_pos_x = std::to_string(scan_pos_x); 
+            std::string str_pos_y = std::to_string(scan_pos_y); 
+            std::string str_angle = std::to_string(ang_radian * 180 / M_PI);
+            std::string str_code_num = std::to_string(scan_code_num);
+            std::string str_checksum = std::to_string(checksum_state);
+
+            scan_status.level = diagnostic_msgs::DiagnosticStatus::OK;
+            scan_status.message = "Running";
+
+            scan_status.hardware_id = "pgv100";
+            scan_status.name = "qrcode_scan_result";                
+
+            scan_result.key = "code number";
+            scan_result.value = str_code_num;
+            scan_status.values.push_back(scan_result);
+
+            scan_result.key = "code detected";
+            scan_result.value = str_is_detected;
+            scan_status.values.push_back(scan_result);
+
+            scan_result.key = "pos_x";
+            scan_result.value = str_pos_x;
+            scan_status.values.push_back(scan_result);
+
+            scan_result.key = "pos_y";
+            scan_result.value = str_pos_y;
+            scan_status.values.push_back(scan_result);   
+            
+            scan_result.key = "angle";
+            scan_result.value = str_angle;
+            scan_status.values.push_back(scan_result);     
+
+            scan_result.key = "check sum";
+            scan_result.value = str_checksum;
+            scan_status.values.push_back(scan_result);          
+
+            dia_array.status.push_back(scan_status);
+            pub_diagnostic_.publish(dia_array);
+        }
     private:
         ros::NodeHandle nh_;
         ros::NodeHandle pnh_;
         boost::shared_ptr<LibSerial::SerialPort> serial_port_;
 
         ros::Publisher pub_scan_result_;
+        ros::Publisher pub_diagnostic_;
         ros::Timer loop_timer_;
 
+        double ang_radian;
+        bool scan_detected;
+        bool checksum_state;
+        double scan_pos_x;
+        double scan_pos_y;
+        int16_t scan_code_num;
 };
 
 int main(int argc, char **argv)
