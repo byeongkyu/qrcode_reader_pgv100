@@ -248,7 +248,7 @@ class QRCodeReaderPGV100
             scan_status.message = "Running";
 
             scan_status.hardware_id = "pgv100";
-            scan_status.name = "qrcode_scan_result";                
+            scan_status.name = "qrcode_reader_pgv100_node";                
 
             scan_result.key = "code number";
             scan_result.value = str_code_num;
