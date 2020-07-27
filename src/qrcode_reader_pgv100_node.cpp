@@ -16,12 +16,13 @@ class QRCodeReaderPGV100
 {
     public:
         QRCodeReaderPGV100()
-        : pnh_("~")
         {
         }
 
         bool init()
         {
+            ros::NodeHandle pnh_("~");
+
             // get serial port name: ex) /dev/ttyUSB0
             std::string portName;
             if(!pnh_.getParam("port_name", portName))
@@ -35,7 +36,10 @@ class QRCodeReaderPGV100
             if(!pnh_.getParam("baudrate", baudrate)) {
                 ROS_ERROR("[%s] Failed to get baudrate. Please set the parameter ~baudrate", ros::this_node::getName().c_str());
                 return false;
-            }
+            }        
+
+            pnh_.param<int>("angle_offset", angle_offset_, 0);
+            ROS_INFO("[%s] Set angle offset to %d", ros::this_node::getName().c_str(), angle_offset_);
 
             // libserial
             serial_port_ = boost::make_shared<LibSerial::SerialPort>();
@@ -68,7 +72,7 @@ class QRCodeReaderPGV100
             pnh_.param<double>("rate", rate, 50.0);
 
             // init ROS publisher
-            pub_scan_result_ = nh_.advertise<thirabot_msgs::QRDetectResult>("qrcode_scan_result", 1);
+            pub_scan_result_ = nh_.advertise<thirabot_msgs::QRDetectResult>("qrcode_scan_result", 10);
             pub_diagnostic_ = nh_.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 1);
             loop_timer_ = nh_.createTimer(ros::Duration(1.0/rate), &QRCodeReaderPGV100::callback, this);
             ROS_INFO("[%s] Initialized successfully.", ros::this_node::getName().c_str());
@@ -84,8 +88,7 @@ class QRCodeReaderPGV100
     private:
         void callback(const ros::TimerEvent& event)
         {
-            send_request_to_scan();
-            // ros::Duration(0.04).sleep();
+            send_request_to_scan();            
 
             // Receive the packet from PGV100
             LibSerial::DataBuffer recv_packet(21);
@@ -136,7 +139,7 @@ class QRCodeReaderPGV100
                     xps |= 0xff800000;
                 }
                 ROS_DEBUG("XPS_: %d", -1 * xps);
-                scan_pos_x = -1 * xps / 1000.0;
+                scan_pos_x = (xps / 10.0) / 1000.0;
                 result_msg.pose.position.x = scan_pos_x;
 
                 int16_t yps = ((int16_t)(recv_packet[6] & 0x7f) << 7) |
@@ -147,7 +150,7 @@ class QRCodeReaderPGV100
                     yps |= 0xC000;
                 }
                 ROS_DEBUG("YPS_: %d", -1 * yps);
-                scan_pos_y = -1 * yps / 1000.0;
+                scan_pos_y = (yps / 10.0) / 1000.0;
                 result_msg.pose.position.y = scan_pos_y;
 
 
@@ -158,13 +161,13 @@ class QRCodeReaderPGV100
                 {
                     ang |= 0xC000;
                 }
-                ang = ang/2;
-                ang_radian = angles::normalize_angle(ang / 180.0 * M_PI);
-                ROS_DEBUG("ANG_: %f", ang_radian * 180 / M_PI);
+                ang = ang - angle_offset_;
+                scan_angle_ = angles::normalize_angle((ang / 10.0) / 180.0 * M_PI);
+                ROS_DEBUG("ANG_: %d", ang - angle_offset_);
 
 
                 tf2::Quaternion q;
-                q.setRPY(0.0, 0.0, ang_radian);
+                q.setRPY(0.0, 0.0, scan_angle_);
                 result_msg.pose.orientation.x = q[0];
                 result_msg.pose.orientation.y = q[1];
                 result_msg.pose.orientation.z = q[2];
@@ -185,7 +188,7 @@ class QRCodeReaderPGV100
                 result_msg.is_detected = scan_detected;
                 scan_pos_x = 0;
                 scan_pos_y = 0;
-                ang_radian = 0;
+                scan_angle_ = 0;
                 scan_code_num = 0;
 
                 ROS_DEBUG("[%s]QR code not detected.", ros::this_node::getName().c_str());
@@ -235,12 +238,12 @@ class QRCodeReaderPGV100
 
             diagnostic_msgs::DiagnosticArray dia_array;
             diagnostic_msgs::DiagnosticStatus scan_status;
-            diagnostic_msgs::KeyValue scan_result; 
+            diagnostic_msgs::KeyValue scan_result;
 
-            std::string str_is_detected = std::to_string(scan_detected); 
-            std::string str_pos_x = std::to_string(scan_pos_x); 
-            std::string str_pos_y = std::to_string(scan_pos_y); 
-            std::string str_angle = std::to_string(ang_radian * 180 / M_PI);
+            std::string str_is_detected = std::to_string(scan_detected);
+            std::string str_pos_x = std::to_string(scan_pos_x);
+            std::string str_pos_y = std::to_string(scan_pos_y);
+            std::string str_angle = std::to_string(scan_angle_ * 180 / M_PI);
             std::string str_code_num = std::to_string(scan_code_num);
             std::string str_checksum = std::to_string(checksum_state);
 
@@ -248,7 +251,7 @@ class QRCodeReaderPGV100
             scan_status.message = "Running";
 
             scan_status.hardware_id = "pgv100";
-            scan_status.name = "qrcode_reader_pgv100_node";                
+            scan_status.name = "qrcode_reader_pgv100_node";
 
             scan_result.key = "code number";
             scan_result.value = str_code_num;
@@ -264,34 +267,35 @@ class QRCodeReaderPGV100
 
             scan_result.key = "pos_y";
             scan_result.value = str_pos_y;
-            scan_status.values.push_back(scan_result);   
-            
+            scan_status.values.push_back(scan_result);
+
             scan_result.key = "angle";
             scan_result.value = str_angle;
-            scan_status.values.push_back(scan_result);     
+            scan_status.values.push_back(scan_result);
 
             scan_result.key = "check sum";
             scan_result.value = str_checksum;
-            scan_status.values.push_back(scan_result);          
+            scan_status.values.push_back(scan_result);
 
             dia_array.status.push_back(scan_status);
             pub_diagnostic_.publish(dia_array);
         }
+
     private:
         ros::NodeHandle nh_;
-        ros::NodeHandle pnh_;
         boost::shared_ptr<LibSerial::SerialPort> serial_port_;
 
         ros::Publisher pub_scan_result_;
         ros::Publisher pub_diagnostic_;
         ros::Timer loop_timer_;
-
-        double ang_radian;
+        
         bool scan_detected;
         bool checksum_state;
         double scan_pos_x;
         double scan_pos_y;
-        int16_t scan_code_num;
+        double scan_angle_;
+        int angle_offset_;        
+        uint32_t scan_code_num;
 };
 
 int main(int argc, char **argv)
