@@ -1,6 +1,6 @@
 #include "ros/ros.h"
 #include <libserial/SerialPort.h>
-#include <thirabot_msgs/QRDetectResult.h>
+#include <qrcode_reader_pgv100/QRDetectResult.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <cmath>
@@ -36,7 +36,7 @@ class QRCodeReaderPGV100
             if(!pnh_.getParam("baudrate", baudrate)) {
                 ROS_ERROR("[%s] Failed to get baudrate. Please set the parameter ~baudrate", ros::this_node::getName().c_str());
                 return false;
-            }        
+            }
 
             pnh_.param<int>("angle_offset", angle_offset_, 0);
             ROS_INFO("[%s] Set angle offset to %d", ros::this_node::getName().c_str(), angle_offset_);
@@ -72,7 +72,7 @@ class QRCodeReaderPGV100
             pnh_.param<double>("rate", rate, 50.0);
 
             // init ROS publisher
-            pub_scan_result_ = nh_.advertise<thirabot_msgs::QRDetectResult>("qrcode_scan_result", 10);
+            pub_scan_result_ = nh_.advertise<qrcode_reader_pgv100::QRDetectResult>("qrcode_scan_result", 10);
             pub_diagnostic_ = nh_.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 1);
             loop_timer_ = nh_.createTimer(ros::Duration(1.0/rate), &QRCodeReaderPGV100::callback, this);
             ROS_INFO("[%s] Initialized successfully.", ros::this_node::getName().c_str());
@@ -88,7 +88,7 @@ class QRCodeReaderPGV100
     private:
         void callback(const ros::TimerEvent& event)
         {
-            send_request_to_scan();            
+            send_request_to_scan();
 
             // Receive the packet from PGV100
             LibSerial::DataBuffer recv_packet(21);
@@ -121,7 +121,7 @@ class QRCodeReaderPGV100
             checksum_state_ = true;
 
             // Parse and save the result from received packet
-            thirabot_msgs::QRDetectResult result_msg = thirabot_msgs::QRDetectResult();
+            qrcode_reader_pgv100::QRDetectResult result_msg = qrcode_reader_pgv100::QRDetectResult();
 
             if(recv_packet[1] & 0x40)
             {
@@ -234,7 +234,7 @@ class QRCodeReaderPGV100
 
         void update_diagnostics()
         {
-            thirabot_msgs::QRDetectResult result_msg = thirabot_msgs::QRDetectResult();
+            qrcode_reader_pgv100::QRDetectResult result_msg = qrcode_reader_pgv100::QRDetectResult();
 
             diagnostic_msgs::DiagnosticArray dia_array;
             diagnostic_msgs::DiagnosticStatus scan_status;
@@ -288,13 +288,13 @@ class QRCodeReaderPGV100
         ros::Publisher pub_scan_result_;
         ros::Publisher pub_diagnostic_;
         ros::Timer loop_timer_;
-        
+
         bool scan_detected_;
         bool checksum_state_;
         double scan_pos_x_;
         double scan_pos_y_;
         double scan_angle_;
-        int angle_offset_;        
+        int angle_offset_;
         uint32_t scan_code_num_;
 };
 

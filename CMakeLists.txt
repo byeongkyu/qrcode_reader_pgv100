@@ -1,17 +1,18 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.0.2)
 project(qrcode_reader_pgv100)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   roscpp
-  rospy
-  thirabot_msgs
+  std_msgs
+  geometry_msgs
   tf2_ros
+  message_generation
 )
 
 ## System dependencies are found with CMake's conventions
@@ -48,11 +49,12 @@ find_package(catkin REQUIRED COMPONENTS
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
+add_message_files(
+  FILES
+  QRDetectResult.msg
 #   Message1.msg
 #   Message2.msg
-# )
+)
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -69,10 +71,11 @@ find_package(catkin REQUIRED COMPONENTS
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   thirabot_msgs
-# )
+generate_messages(
+  DEPENDENCIES
+  geometry_msgs
+  std_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -156,6 +159,7 @@ target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
   serial
 )
+add_dependencies(${PROJECT_NAME}_node ${PROJECT_NAME}_generate_messages_cpp)
 
 #############
 ## Install ##
